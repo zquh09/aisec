@@ -1,9 +1,13 @@
 [package]
 name = "aisec"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2021"
 
 [dependencies]
+# ... твои старые зависимости ...
+tray-icon = "0.19"
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
 clap = { version = "4.4", features = ["derive"] }
 regex = "1.10"
 serde = { version = "1", features = ["derive"] }
@@ -21,9 +25,19 @@ notify = "6.1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 sha2 = "0.10"
 base64 = "0.22"
+chacha20poly1305 = "0.10"
+hex = "0.4"
+netstat2 = "0.10"
+yara-x = "1"
+zip = "2"
+notify-rust = "4.11" # <-- НОВОЕ
+dirs = "5"          # <-- НОВОЕ
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+
+[build-dependencies]
+winres = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
