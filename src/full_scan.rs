@@ -1,8 +1,5 @@
 use rayon::prelude::*;
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use walkdir::{DirEntry, WalkDir};
@@ -29,18 +26,6 @@ fn is_excluded(path: &Path) -> bool {
 fn is_excluded(_path: &Path) -> bool { false }
 
 fn should_visit(entry: &DirEntry) -> bool { !is_excluded(entry.path()) }
-
-fn calculate_sha256(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 { break; }
-        hasher.update(&buffer[..bytes_read]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
 
 pub fn scan_system_path(
     root: impl AsRef<Path>,
@@ -74,7 +59,8 @@ pub fn scan_system_path(
     files.par_iter().for_each(|path| {
         let idx = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         
-        if let Ok(hash) = calculate_sha256(path) {
+        // Используем кэш хешей вместо прямого вычисления
+        if let Ok(hash) = crate::hash_cache::get_or_compute_hash(path) {
             if db.contains(&hash) {
                 let _ = tx.send(format!("⚠ НАЙДЕН ВИРУС: {}", path.display()));
             }
@@ -84,6 +70,9 @@ pub fn scan_system_path(
             let _ = tx.send(format!("▶ Проверено файлов: {} / {}", idx, total));
         }
     });
+
+    // Сохраняем кэш на диск после завершения сканирования
+    let _ = crate::hash_cache::save_cache();
 
     let _ = tx.send("✔ Сканирование завершено.".to_string());
 }

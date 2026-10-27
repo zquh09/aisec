@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 const MIN_FILE_SIZE: u64 = 1024;
 const SYSTEM_DIRECTORIES: &[&str] = &[

@@ -8,7 +8,7 @@ use chrono::{DateTime, Local};
 
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, CursorIcon, FontFamily, FontId, Frame, Layout, Margin,
-    Rect, RichText, Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui,
+    RichText, Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui,
 };
 
 use crate::config::{self, AppConfig};
@@ -46,33 +46,33 @@ enum Tab { Dashboard, RealTime, Ransomware, Scheduler, System, FullScan, Network
 
 impl Tab {
     const ALL: [Tab; 19] = [Tab::Dashboard, Tab::RealTime, Tab::Ransomware, Tab::Scheduler, Tab::System, Tab::FullScan, Tab::Network, Tab::Quarantine, Tab::Scan, Tab::Yara, Tab::Integrity, Tab::Guard, Tab::Canary, Tab::Crack, Tab::Startup, Tab::Processes, Tab::Watcher, Tab::Privacy, Tab::Settings];
-    
+
     fn icon(self) -> &'static str {
-        match self { 
-            Tab::Dashboard => "⌂", Tab::RealTime => "◉", Tab::Ransomware => "☣", Tab::Scheduler => "⏱", Tab::System => "☼", 
-            Tab::FullScan => "❖", Tab::Network => "☍", Tab::Quarantine => "✖", Tab::Scan => "⌕", Tab::Yara => "✚", 
-            Tab::Integrity => "❉", Tab::Guard => "☗", Tab::Canary => "◎", Tab::Crack => "⚒", Tab::Startup => "⏻", 
-            Tab::Processes => "≡", Tab::Watcher => "◉", Tab::Privacy => "⌬", Tab::Settings => "⚙" 
+        match self {
+            Tab::Dashboard => "⌂", Tab::RealTime => "◉", Tab::Ransomware => "☣", Tab::Scheduler => "⏱", Tab::System => "☼",
+            Tab::FullScan => "❖", Tab::Network => "☍", Tab::Quarantine => "✖", Tab::Scan => "⌕", Tab::Yara => "✚",
+            Tab::Integrity => "❉", Tab::Guard => "☗", Tab::Canary => "◎", Tab::Crack => "⚒", Tab::Startup => "⏻",
+            Tab::Processes => "≡", Tab::Watcher => "◉", Tab::Privacy => "⌬", Tab::Settings => "⚙"
         }
     }
-    
+
     fn title(self) -> &'static str {
-        match self { 
-            Tab::Dashboard => "Главная", Tab::RealTime => "Защита (RTP)", Tab::Ransomware => "Анти-Шифровальщик", Tab::Scheduler => "Планировщик", 
-            Tab::System => "Система", Tab::FullScan => "Сканер ПК", Tab::Network => "Сеть", Tab::Quarantine => "Карантин", 
-            Tab::Scan => "Секреты", Tab::Yara => "YARA", Tab::Integrity => "Целостность", Tab::Guard => "Защита промптов", 
-            Tab::Canary => "Ловушки", Tab::Crack => "Анализ EXE", Tab::Startup => "Автозагрузка", Tab::Processes => "Процессы", 
-            Tab::Watcher => "Наблюдение", Tab::Privacy => "Приватность", Tab::Settings => "Настройки" 
+        match self {
+            Tab::Dashboard => "Главная", Tab::RealTime => "Защита (RTP)", Tab::Ransomware => "Анти-Шифровальщик", Tab::Scheduler => "Планировщик",
+            Tab::System => "Система", Tab::FullScan => "Сканер ПК", Tab::Network => "Сеть", Tab::Quarantine => "Карантин",
+            Tab::Scan => "Секреты", Tab::Yara => "YARA", Tab::Integrity => "Целостность", Tab::Guard => "Защита промптов",
+            Tab::Canary => "Ловушки", Tab::Crack => "Анализ EXE", Tab::Startup => "Автозагрузка", Tab::Processes => "Процессы",
+            Tab::Watcher => "Наблюдение", Tab::Privacy => "Приватность", Tab::Settings => "Настройки"
         }
     }
-    
+
     fn tooltip(self) -> &'static str {
         match self {
             Tab::Dashboard => "Общий статус.",
             Tab::RealTime => "Защита в реальном времени (RTP).",
             Tab::Ransomware => "Защита от шифрования файлов.",
             Tab::Scheduler => "Проверка задач Windows.",
-            Tab::System => "Проверка HOSTS и Defender.",
+            Tab::System => "Проверка HOSTS, Defender, реестра и WMI.",
             Tab::FullScan => "Полное сканирование.",
             Tab::Network => "TCP-подключения.",
             Tab::Quarantine => "Зашифрованные файлы.",
@@ -223,10 +223,9 @@ pub struct AisecApp {
     kill_pid_input: String,
     settings_vt_key: String,
     settings_whitelist: String,
+    settings_schedule_days: u64,
     settings_saved_at: Option<Instant>,
     last_scan_time: Option<DateTime<Local>>,
-    
-    // Поля для трея и обновлений
     tray: Option<tray_icon::TrayIcon>,
     allow_quit: bool,
     update_rx: Option<Receiver<Result<Option<String>, String>>>,
@@ -236,14 +235,14 @@ pub struct AisecApp {
 impl AisecApp {
     fn new(cc: &eframe::CreationContext<'_>, tray_icon: Option<tray_icon::TrayIcon>) -> Self {
         let mut fonts = egui::FontDefinitions::default();
-        
+
         if let Ok(font_data) = std::fs::read("resources/Inter-Regular.ttf") {
             fonts.font_data.insert("Inter".to_owned(), egui::FontData::from_owned(font_data));
             if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
                 family.insert(0, "Inter".to_owned());
             }
         }
-        
+
         if let Ok(font_data) = std::fs::read(r"C:\Windows\Fonts\seguisym.ttf") {
             fonts.font_data.insert("seguisym".to_owned(), egui::FontData::from_owned(font_data));
             if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
@@ -256,18 +255,18 @@ impl AisecApp {
                 family.push("seguiemj".to_owned());
             }
         }
-        
+
         cc.egui_ctx.set_fonts(fonts);
 
         apply_theme(&cc.egui_ctx);
         let cfg = config::load_config();
         let key = cfg.vt_api_key.clone();
         let wl = cfg.whitelist.join("\n");
-        
-        // Запускаем фоновый поток проверки обновлений
+        let days = cfg.scan_schedule_days;
+
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || { let _ = tx.send(updater::check_for_updates()); });
-        
+
         Self {
             tab: Tab::Dashboard,
             scan: ScanState { path: cfg.scan_path.clone(), ..Default::default() },
@@ -291,9 +290,9 @@ impl AisecApp {
             privacy: PrivacyState::default(),
             settings_vt_key: key,
             settings_whitelist: wl,
+            settings_schedule_days: days,
             settings_saved_at: None,
             last_scan_time: None,
-            
             tray: tray_icon,
             allow_quit: false,
             update_rx: Some(rx),
@@ -339,29 +338,25 @@ impl AisecApp {
         }
 
         if let Some(rx) = &self.rtp.rx {
-            while let Ok(msg) = rx.try_recv() {
-                self.rtp.log.push_str(&format!("{}\n---\n", msg));
-            }
+            while let Ok(msg) = rx.try_recv() { self.rtp.log.push_str(&format!("{}\n---\n", msg)); }
         }
 
         if let Some(rx) = &self.ransomware.rx {
-            while let Ok(msg) = rx.try_recv() {
-                self.ransomware.log.push_str(&format!("{}\n---\n", msg));
-            }
+            while let Ok(msg) = rx.try_recv() { self.ransomware.log.push_str(&format!("{}\n---\n", msg)); }
         }
 
         if let Some(rx) = &self.watcher.rx {
             while let Ok(msg) = rx.try_recv() { self.watcher.log.push_str(&format!("{}\n", msg)); }
         }
         if let Some(rx) = &self.full_scan.rx {
-            while let Ok(msg) = rx.try_recv() { 
+            while let Ok(msg) = rx.try_recv() {
                 if msg.contains("НАЙДЕН ВИРУС") {
                     if let Some(path_str) = msg.strip_prefix("⚠ НАЙДЕН ВИРУС: ") {
                         self.full_scan.last_virus = Some(PathBuf::from(path_str));
                     }
                     self.full_scan.log.push_str(&format!("{}\n", msg));
                 } else if !msg.contains("Проверено") {
-                    self.full_scan.log.push_str(&format!("{}\n", msg)); 
+                    self.full_scan.log.push_str(&format!("{}\n", msg));
                 } else if self.full_scan.log.lines().count() % 10 == 0 {
                     self.full_scan.log.push_str(&format!("{}\n", msg));
                 }
@@ -389,20 +384,44 @@ impl AisecApp {
             .show(ctx, |ui| {
                 ui.label(RichText::new("AISEC").size(24.0).strong().color(ACCENT_YELLOW));
                 ui.label(RichText::new("AI Security Toolkit").size(12.0).color(TEXT_MUTED));
-                ui.add_space(24.0); 
-                
+                ui.add_space(20.0);
+
                 ScrollArea::vertical().show(ui, |ui| {
-                    for tab in Tab::ALL {
-                        let selected = self.tab == tab;
-                        let response = sidebar_tab(ui, tab, selected);
-                        if response.clicked() { 
-                            self.tab = tab; 
-                            if self.tab == Tab::Quarantine { self.quarantine.files = Self::get_quarantine_files(); }
+                    if sidebar_tab(ui, Tab::Dashboard, self.tab == Tab::Dashboard).clicked() {
+                        self.tab = Tab::Dashboard;
+                    }
+                    ui.add_space(8.0);
+
+                    egui::CollapsingHeader::new("🛡 Защита").default_open(true).show(ui, |ui| {
+                        for &t in &[Tab::RealTime, Tab::Ransomware, Tab::Scheduler, Tab::Integrity, Tab::Startup] {
+                            if sidebar_tab(ui, t, self.tab == t).clicked() { self.tab = t; }
                         }
+                    });
+
+                    egui::CollapsingHeader::new("🔍 Анализ").default_open(true).show(ui, |ui| {
+                        for &t in &[Tab::FullScan, Tab::Yara, Tab::Crack, Tab::Network, Tab::Processes] {
+                            if sidebar_tab(ui, t, self.tab == t).clicked() { self.tab = t; }
+                        }
+                    });
+
+                    egui::CollapsingHeader::new("🛠 Инструменты").default_open(false).show(ui, |ui| {
+                        for &t in &[Tab::Quarantine, Tab::Scan, Tab::Canary, Tab::Watcher, Tab::Privacy, Tab::System, Tab::Guard] {
+                            if sidebar_tab(ui, t, self.tab == t).clicked() {
+                                self.tab = t;
+                                if self.tab == Tab::Quarantine { self.quarantine.files = Self::get_quarantine_files(); }
+                            }
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    if sidebar_tab(ui, Tab::Settings, self.tab == Tab::Settings).clicked() {
+                        self.tab = Tab::Settings;
                     }
                 });
-                ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| { 
-                    ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(11.5).color(TEXT_MUTED)); 
+
+                ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
+                    ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(11.5).color(TEXT_MUTED));
                 });
             });
     }
@@ -446,7 +465,6 @@ impl AisecApp {
                     let rules = self.yara.rules.clone();
                     let whitelist = self.config.whitelist.clone();
                     let key = self.config.quarantine_key.clone();
-                    
                     let (tx, rx) = mpsc::channel();
                     match real_time_protection::start_rtp(key, db, rules, whitelist, tx) {
                         Ok(watcher) => {
@@ -546,7 +564,7 @@ impl AisecApp {
             output_actions(ui, &mut self.process.runner);
         });
         ui.add_space(10.0); status_line(ui, &self.process.runner);
-        
+
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.label(RichText::new("Завершить процесс по PID:").color(TEXT_MUTED));
@@ -568,7 +586,6 @@ impl AisecApp {
         ui.vertical_centered(|ui| {
             ui.add_space(20.0);
 
-            // Уведомление об обновлении
             if let Some(url) = &self.update_url {
                 card(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -631,12 +648,12 @@ impl AisecApp {
     }
 
     fn ui_system(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        page_header(ui, "Система", "Проверка HOSTS-файла и статуса Windows Defender.");
-        card(ui, |ui| { ui.label(RichText::new("Программа проверит, не заблокированы ли сайты антивирусов и включена ли защита.").color(TEXT_MUTED)); });
+        page_header(ui, "Система", "Проверка HOSTS, Defender, реестра и WMI.");
+        card(ui, |ui| { ui.label(RichText::new("Проверит HOSTS, Defender, ключи реестра, WMI и скрытые файлы.").color(TEXT_MUTED)); });
         ui.add_space(10.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let busy = self.system.runner.is_running();
-            if ui.add_enabled(!busy, primary_button("Проверить систему")).clicked() {
+            if ui.add_enabled(!busy, primary_button("Проверить HOSTS/Defender")).clicked() {
                 self.system.runner.start(ctx, String::new(), move || {
                     let mut out = String::new();
                     out.push_str(&format!("{}\n\n", system_check::check_windows_defender()));
@@ -644,6 +661,39 @@ impl AisecApp {
                     if hosts.is_empty() { out.push_str("Файл HOSTS в порядке. Блокировок нет."); }
                     else { out.push_str("Внимание! Найдены подозрительные записи:\n"); for h in hosts { out.push_str(&format!(" - {}\n", h)); } }
                     Outcome { ok: true, text: out }
+                });
+            }
+            if ui.add_enabled(!busy, secondary_button("Сканировать реестр")).clicked() {
+                self.system.runner.start(ctx, String::new(), move || {
+                    let entries = crate::registry_scanner::scan_registry();
+                    if entries.is_empty() { Outcome { ok: true, text: "Реестр чист.".to_string() } }
+                    else {
+                        let mut out = format!("Найдено {} подозрительных записей:\n\n", entries.len());
+                        for e in entries { out.push_str(&format!("⚠ {}\n\n", e)); }
+                        Outcome { ok: false, text: out }
+                    }
+                });
+            }
+            if ui.add_enabled(!busy, secondary_button("Сканировать WMI")).clicked() {
+                self.system.runner.start(ctx, String::new(), move || {
+                    let entries = crate::wmi_scanner::scan_wmi_and_tasks();
+                    if entries.is_empty() { Outcome { ok: true, text: "WMI и задачи чисты.".to_string() } }
+                    else {
+                        let mut out = format!("Найдено {} подозрительных записей:\n\n", entries.len());
+                        for e in entries { out.push_str(&format!("⚠ {}\n\n", e)); }
+                        Outcome { ok: false, text: out }
+                    }
+                });
+            }
+            if ui.add_enabled(!busy, secondary_button("Сканировать NTFS")).clicked() {
+                self.system.runner.start(ctx, String::new(), move || {
+                    let entries = crate::ntfs_scanner::find_ads_and_hidden(std::path::Path::new("C:\\"));
+                    if entries.is_empty() { Outcome { ok: true, text: "Скрытых файлов и ADS не найдено.".to_string() } }
+                    else {
+                        let mut out = format!("Найдено {} подозрительных объектов:\n\n", entries.len());
+                        for e in entries { out.push_str(&format!("⚠ {}\n\n", e)); }
+                        Outcome { ok: false, text: out }
+                    }
                 });
             }
             output_actions(ui, &mut self.system.runner);
@@ -832,6 +882,20 @@ impl AisecApp {
                 let text = self.scan.runner.text.clone();
                 if report_export::export_html("report_scan.html", "Результаты сканирования", &text).is_ok() { self.scan.runner.push_text("\nОтчёт сохранён в report_scan.html"); }
             }
+            if ui.add_enabled(!self.scan.runner.text.is_empty(), secondary_button("Экспорт в PDF")).clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Экспорт отчёта в PDF")
+                    .set_file_name("scan_report.pdf")
+                    .add_filter("PDF", &["pdf"])
+                    .save_file()
+                {
+                    let text = self.scan.runner.text.clone();
+                    match crate::pdf_export::export_pdf(path.to_string_lossy().as_ref(), "Scan Report", &text) {
+                        Ok(_) => self.scan.runner.push_text("\nPDF сохранён."),
+                        Err(e) => self.scan.runner.push_text(&format!("\nОшибка PDF: {}", e)),
+                    }
+                }
+            }
             output_actions(ui, &mut self.scan.runner);
         });
         ui.add_space(10.0); status_line(ui, &self.scan.runner);
@@ -925,6 +989,20 @@ impl AisecApp {
                 let text = self.crack.runner.text.clone();
                 if report_export::export_html("report_crack.html", "Анализ EXE", &text).is_ok() { self.crack.runner.push_text("\nОтчёт сохранён в report_crack.html"); }
             }
+            if ui.add_enabled(!self.crack.runner.text.is_empty(), secondary_button("Экспорт в PDF")).clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Экспорт отчёта в PDF")
+                    .set_file_name("crack_report.pdf")
+                    .add_filter("PDF", &["pdf"])
+                    .save_file()
+                {
+                    let text = self.crack.runner.text.clone();
+                    match crate::pdf_export::export_pdf(path.to_string_lossy().as_ref(), "Analysis Report", &text) {
+                        Ok(_) => self.crack.runner.push_text("\nPDF сохранён."),
+                        Err(e) => self.crack.runner.push_text(&format!("\nОшибка PDF: {}", e)),
+                    }
+                }
+            }
             output_actions(ui, &mut self.crack.runner);
         });
         ui.add_space(10.0); status_line(ui, &self.crack.runner);
@@ -936,7 +1014,7 @@ impl AisecApp {
         if path_text.is_empty() { self.crack.runner.fail("Укажите путь."); return; }
         let path = PathBuf::from(&path_text);
         if !path.is_file() { self.crack.runner.fail(format!("Файл не найден: {path_text}")); return; }
-        
+
         self.crack.runner.start(ctx, String::new(), move || {
             let sig_status = signature_check::check_signature(&path);
             let sig_text = match sig_status {
@@ -1049,7 +1127,7 @@ impl AisecApp {
     }
 
     fn ui_settings(&mut self, ui: &mut Ui) {
-        page_header(ui, "Настройки", "Конфигурация API и белый список.");
+        page_header(ui, "Настройки", "Конфигурация API, белый список и планировщик.");
         card(ui, |ui| {
             field_label(ui, "VirusTotal API Key");
             ui.add(TextEdit::singleline(&mut self.settings_vt_key).hint_text("Вставьте ваш API ключ").desired_width(f32::INFINITY).font(TextStyle::Monospace));
@@ -1057,9 +1135,17 @@ impl AisecApp {
             field_label(ui, "Белый список папок (по одной в строке)");
             ui.add(TextEdit::multiline(&mut self.settings_whitelist).hint_text("C:\\Games\\Cyberpunk 2077\nD:\\Pirate Games").desired_rows(5).desired_width(f32::INFINITY).font(TextStyle::Monospace));
             ui.add_space(10.0);
+
+            field_label(ui, "Сканирование по расписанию");
+            ui.horizontal(|ui| {
+                ui.add(egui::Slider::new(&mut self.settings_schedule_days, 0..=30).text("дней (0 = выкл)"));
+            });
+
+            ui.add_space(10.0);
             if ui.button("Сохранить настройки").clicked() {
                 self.config.vt_api_key = self.settings_vt_key.clone();
                 self.config.whitelist = self.settings_whitelist.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                self.config.scan_schedule_days = self.settings_schedule_days;
                 config::save_config(&self.config);
                 self.settings_saved_at = Some(Instant::now());
             }
@@ -1072,7 +1158,6 @@ impl AisecApp {
 
 impl eframe::App for AisecApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 1. Логика трея
         if let Some(t) = &self.tray {
             match tray::handle_tray_events(t) {
                 Some(tray::TrayAction::Open) => {
@@ -1088,17 +1173,14 @@ impl eframe::App for AisecApp {
             }
         }
 
-        // 2. Скрытие в трей
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && self.tray.is_some() && !self.allow_quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
 
-        // 3. Оживляем окно
         ctx.request_repaint_after(Duration::from_millis(200));
 
-        // 4. Проверка обновлений
         if let Some(rx) = &self.update_rx {
             match rx.try_recv() {
                 Ok(Ok(Some(url))) => { self.update_url = Some(url); self.update_rx = None; }
@@ -1109,14 +1191,14 @@ impl eframe::App for AisecApp {
             }
         }
 
-        self.poll_jobs(); 
+        self.poll_jobs();
         self.handle_dropped_files(ctx);
-        
-        if self.watcher.rx.is_some() || self.full_scan.rx.is_some() || self.yara.update_rx.is_some() || self.rtp.rx.is_some() || self.ransomware.rx.is_some() { 
-            ctx.request_repaint_after(Duration::from_millis(100)); 
+
+        if self.watcher.rx.is_some() || self.full_scan.rx.is_some() || self.yara.update_rx.is_some() || self.rtp.rx.is_some() || self.ransomware.rx.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
-        
-        self.show_sidebar(ctx); 
+
+        self.show_sidebar(ctx);
         self.show_central(ctx);
     }
 }
@@ -1127,9 +1209,8 @@ pub fn run_gui() -> eframe::Result<()> {
         if let Ok(icon) = eframe::icon_data::from_png_bytes(&icon_bytes) { viewport = viewport.with_icon(icon); }
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    
+
     eframe::run_native("AI Security Toolkit", options, Box::new(|cc| {
-        // Создаем иконку в трее
         let tray_icon = tray::create_tray("icon.png").ok();
         Ok(Box::new(AisecApp::new(cc, tray_icon)))
     }))
@@ -1138,35 +1219,35 @@ pub fn run_gui() -> eframe::Result<()> {
 fn apply_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
     let mut visuals = egui::Visuals::dark();
-    
+
     visuals.dark_mode = true;
     visuals.window_fill = BG_DARK;
     visuals.panel_fill = PANEL_BG;
     visuals.extreme_bg_color = Color32::from_rgb(12, 12, 12);
     visuals.faint_bg_color = Color32::from_rgb(38, 38, 38);
-    
+
     visuals.selection.bg_fill = ACCENT_YELLOW;
     visuals.selection.stroke = Stroke::new(1.0_f32, Color32::BLACK);
-    
+
     visuals.window_rounding = Rounding::same(14.0);
     visuals.menu_rounding = Rounding::same(10.0);
-    
+
     visuals.widgets.noninteractive.bg_fill = PANEL_BG;
     visuals.widgets.noninteractive.rounding = Rounding::same(8.0);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(0.5_f32, Color32::from_gray(60));
-    
+
     visuals.widgets.inactive.bg_fill = Color32::from_rgb(34, 34, 34);
     visuals.widgets.inactive.rounding = Rounding::same(8.0);
     visuals.widgets.inactive.fg_stroke = Stroke::new(0.5_f32, Color32::from_gray(80));
-    
+
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(46, 46, 46);
     visuals.widgets.hovered.rounding = Rounding::same(8.0);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, ACCENT_YELLOW);
-    
+
     visuals.widgets.active.bg_fill = ACCENT_YELLOW;
     visuals.widgets.active.rounding = Rounding::same(8.0);
     visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::BLACK);
-    
+
     style.visuals = visuals;
     style.spacing.item_spacing = vec2(10.0, 10.0);
     style.spacing.button_padding = vec2(14.0, 7.0);
@@ -1179,33 +1260,33 @@ fn sidebar_tab(ui: &mut Ui, tab: Tab, selected: bool) -> egui::Response {
     let bg_color = if selected { Color32::from_rgba_premultiplied(255, 204, 0, 25) } else { Color32::TRANSPARENT };
     let text_color = if selected { ACCENT_YELLOW } else { TEXT_MUTED };
     let desired_size = egui::vec2(ui.available_width(), 40.0);
-    
+
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    
+
     if ui.is_rect_visible(rect) {
         let fill = if response.hovered() && !selected { Color32::from_rgb(40, 40, 40) } else { bg_color };
-        
+
         ui.painter().rect(
             rect,
             Rounding::same(10.0),
             fill,
-            if selected { Stroke::new(1.0_f32, ACCENT_YELLOW) } 
-            else if response.hovered() { Stroke::new(0.5_f32, Color32::from_gray(70)) } 
+            if selected { Stroke::new(1.0_f32, ACCENT_YELLOW) }
+            else if response.hovered() { Stroke::new(0.5_f32, Color32::from_gray(70)) }
             else { Stroke::NONE },
         );
-        
+
         let content_rect = rect.shrink2(egui::vec2(16.0, 0.0));
         let mut galley_pos = content_rect.min + egui::vec2(0.0, (40.0 - 16.0) / 2.0);
-        
+
         let symbol_galley = ui.painter().layout_no_wrap(tab.icon().to_string(), egui::FontId::proportional(16.0), text_color);
         ui.painter().galley(galley_pos, symbol_galley, text_color);
-        
+
         galley_pos.x += 28.0;
-        
+
         let text_galley = ui.painter().layout_no_wrap(tab.title().to_string(), egui::FontId::proportional(14.0), if selected { TEXT_PRIMARY } else { TEXT_MUTED });
         ui.painter().galley(galley_pos, text_galley, if selected { TEXT_PRIMARY } else { TEXT_MUTED });
     }
-    
+
     response.on_hover_cursor(CursorIcon::PointingHand).on_hover_ui(|ui| { ui.label(RichText::new(tab.tooltip()).size(12.0).color(TEXT_MUTED)); })
 }
 
@@ -1216,7 +1297,7 @@ fn page_header(ui: &mut Ui, title: &str, subtitle: &str) {
         ui.add_space(4.0);
         ui.label(RichText::new(subtitle).size(14.0).color(TEXT_MUTED));
         ui.add_space(16.0);
-        
+
         let stroke = Stroke::new(0.5_f32, Color32::from_gray(45));
         let rect = ui.available_rect_before_wrap();
         ui.painter().hline(rect.x_range(), rect.min.y, stroke);
@@ -1224,21 +1305,21 @@ fn page_header(ui: &mut Ui, title: &str, subtitle: &str) {
     });
 }
 
-fn field_label(ui: &mut Ui, text: &str) { 
-    ui.label(RichText::new(text).size(13.0).strong().color(TEXT_MUTED)); 
+fn field_label(ui: &mut Ui, text: &str) {
+    ui.label(RichText::new(text).size(13.0).strong().color(TEXT_MUTED));
 }
 
-fn card(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) { 
+fn card(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
     Frame::none()
         .fill(PANEL_BG)
         .rounding(Rounding::same(14.0))
         .stroke(Stroke::new(0.5_f32, Color32::from_gray(48)))
         .inner_margin(Margin::same(20.0))
-        .show(ui, |ui| { 
-            ui.set_width(ui.available_width()); 
-            add_contents(ui); 
-        }); 
-    ui.add_space(10.0); 
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add_contents(ui);
+        });
+    ui.add_space(10.0);
 }
 
 fn primary_button(text: &str) -> impl egui::Widget {

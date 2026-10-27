@@ -16,6 +16,11 @@ pub struct AppConfig {
     pub quarantine_key: String,
     #[serde(default)]
     pub whitelist: Vec<String>,
+    // --- НОВЫЕ ПОЛЯ ДЛЯ ПЛАНИРОВЩИКА ---
+    #[serde(default)]
+    pub scan_schedule_days: u64,
+    #[serde(default)]
+    pub last_scan_timestamp: u64,
 }
 
 impl Default for AppConfig {
@@ -29,6 +34,8 @@ impl Default for AppConfig {
             vt_api_key: String::new(),
             quarantine_key: key_hex,
             whitelist: Vec::new(),
+            scan_schedule_days: 0,
+            last_scan_timestamp: 0,
         }
     }
 }

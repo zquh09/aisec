@@ -30,10 +30,20 @@ mod process_killer;
 mod self_defense;
 mod tray;
 mod updater;
+mod cloud_db;
+mod scheduler;
+mod usb_guard;
+mod hash_cache;
+mod registry_scanner;
+mod wmi_scanner;
+mod threat_history;
+mod ntfs_scanner;
+mod pdf_export;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 
 #[derive(Parser, Debug)]
@@ -58,12 +68,26 @@ enum Commands {
 }
 
 fn main() {
-    // Блокируем исполняемый файл от удаления/перезаписи, пока AISEC работает
+    // Защита exe от удаления
     let _ = self_defense::lock_executable();
 
     let cli = Cli::parse();
 
     if cli.command.is_none() {
+        // === РЕЖИМ GUI ===
+        
+        // 1. Загружаем конфиг и запускаем планировщик
+        let config_arc = Arc::new(Mutex::new(config::load_config()));
+        scheduler::start_scheduler(Arc::clone(&config_arc));
+
+        // 2. Запускаем USB Guard в фоне (чтобы не блокировать GUI)
+        std::thread::spawn(|| {
+            if let Err(e) = usb_guard::start_usb_listener() {
+                eprintln!("[USB Guard] Ошибка: {}", e);
+            }
+        });
+
+        // 3. Запускаем GUI
         if let Err(e) = gui::run_gui() {
             eprintln!("Ошибка запуска GUI: {}", e);
             process::exit(1);
@@ -71,6 +95,7 @@ fn main() {
         return;
     }
 
+    // === РЕЖИМ CLI ===
     match cli.command.unwrap() {
         Commands::Scan { path, exclude, json } => {
             if let Err(e) = scan::start_scan(path, exclude, json) {
@@ -96,9 +121,7 @@ fn main() {
             match crack_detector::analyze_file(&path) {
                 Ok(report) => {
                     println!("Вердикт: {:?}", report.verdict);
-                    for r in report.reasons {
-                        println!("- {}", r);
-                    }
+                    for r in report.reasons { println!("- {}", r); }
                 }
                 Err(e) => eprintln!("Ошибка: {}", e),
             }
@@ -116,9 +139,7 @@ fn main() {
             println!("Слежка за папкой {:?}. Нажмите Ctrl+C для выхода.", path);
             let (tx, rx) = channel();
             watcher::start_watching(&path.to_string_lossy(), tx);
-            for msg in rx {
-                println!("{}", msg);
-            }
+            for msg in rx { println!("{}", msg); }
         }
         Commands::Privacy => {
             let report = privacy_audit::run_privacy_audit();
@@ -128,9 +149,7 @@ fn main() {
             println!("Локальный IP раскрыт: {}", if report.webrtc_leak { "ДА" } else { "НЕТ" });
             if !report.warnings.is_empty() {
                 println!("\nПредупреждения:");
-                for w in report.warnings {
-                    println!(" - {}", w);
-                }
+                for w in report.warnings { println!(" - {}", w); }
             }
         }
     }

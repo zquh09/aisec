@@ -88,6 +88,14 @@ fn process_file(path: &Path, key: &str, db: &HashSet<String>, rules: &Option<Arc
 }
 
 fn block_file(path: &Path, file_name: &str, reason: &str, key: &str, tx: &Sender<String>) {
+    // Логируем угрозу в историю (SQLite)
+    crate::threat_history::log_threat(
+        &path.to_string_lossy(),
+        reason,
+        "quarantined",
+        "",
+    );
+
     if let Ok(_) = quarantine::move_to_quarantine(path, key) {
         notifications::notify_threat(file_name, reason);
         let msg = format!("🛡 ЗАБЛОКИРОВАН: {} | Причина: {}", file_name, reason);
